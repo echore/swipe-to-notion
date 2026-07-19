@@ -68,6 +68,21 @@ def test_handle_text_saves_each_url(monkeypatch):
     assert "已存入" in reply
 
 
+def test_handle_text_reports_failure_when_save_returns_false(monkeypatch):
+    monkeypatch.setattr(bot, "save_to_notion", lambda url, platform, note: False)
+    reply = bot.handle_text("https://b23.tv/x 好视频")
+    assert "存入失败" in reply
+
+
+def test_handle_text_reports_failure_when_save_raises(monkeypatch):
+    def boom(url, platform, note):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(bot, "save_to_notion", boom)
+    reply = bot.handle_text("https://b23.tv/x 好视频")
+    assert "存入失败" in reply
+
+
 def test_run_once_processes_and_confirms_offset(monkeypatch):
     monkeypatch.setattr(bot, "save_to_notion", lambda *a, **k: True)
     calls = {"offsets": [], "sent": []}
@@ -87,6 +102,27 @@ def test_run_once_processes_and_confirms_offset(monkeypatch):
     assert count == 1
     assert calls["offsets"] == [None, 302]
     assert calls["sent"][0][0] == 9
+
+
+def test_run_once_advances_offset_even_when_notion_save_fails(monkeypatch):
+    monkeypatch.setattr(bot, "save_to_notion", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    calls = {"offsets": [], "sent": []}
+    fake_updates = [
+        {"update_id": 301, "message": {"chat": {"id": 9}, "text": "https://x.com/p/1"}},
+    ]
+
+    def fake_get_updates(token, offset=None, timeout=0):
+        calls["offsets"].append(offset)
+        return fake_updates if offset is None else []
+
+    def fake_send(token, chat_id, text):
+        calls["sent"].append((chat_id, text))
+        return {}
+
+    count = bot.run_once("T", fake_get_updates, fake_send, bot.handle_text)
+    assert count == 1
+    assert calls["offsets"] == [None, 302]
+    assert "存入失败" in calls["sent"][0][1]
 
 
 def test_run_once_empty_no_confirm():
