@@ -129,3 +129,23 @@ def run_once(token, get_updates_fn=get_updates, send_message_fn=send_message, ha
     if last_update_id is not None:
         get_updates_fn(token, offset=last_update_id + 1)
     return len(updates)
+
+
+def main():
+    missing = [
+        name
+        for name, value in [
+            ("TELEGRAM_BOT_TOKEN", TELEGRAM_TOKEN),
+            ("NOTION_TOKEN", NOTION_TOKEN),
+            ("NOTION_DATABASE_ID", NOTION_DATABASE_ID),
+        ]
+        if not value
+    ]
+    if missing:
+        raise SystemExit(f"ERROR: 缺少环境变量: {', '.join(missing)}")
+    count = run_once(TELEGRAM_TOKEN)
+    print(f"processed {count} update(s)")
+
+
+if __name__ == "__main__":
+    main()
