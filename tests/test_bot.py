@@ -54,3 +54,40 @@ def test_save_to_notion_title_falls_back_to_url(monkeypatch):
                         lambda url, headers=None, json=None, timeout=None: captured.update(json=json) or FakeResp())
     bot.save_to_notion("https://x.com/p/1", ["其他"], "")
     assert captured["json"]["properties"][bot.TITLE_PROPERTY]["title"][0]["text"]["content"] == "https://x.com/p/1"
+
+
+def test_handle_text_no_url():
+    assert "没有检测到链接" in bot.handle_text("纯文字没有链接")
+
+
+def test_handle_text_saves_each_url(monkeypatch):
+    saved = []
+    monkeypatch.setattr(bot, "save_to_notion", lambda url, platform, note: saved.append((url, platform, note)) or True)
+    reply = bot.handle_text("https://b23.tv/x 好视频")
+    assert saved == [("https://b23.tv/x", ["B站"], "好视频")]
+    assert "已存入" in reply
+
+
+def test_run_once_processes_and_confirms_offset(monkeypatch):
+    monkeypatch.setattr(bot, "save_to_notion", lambda *a, **k: True)
+    calls = {"offsets": [], "sent": []}
+    fake_updates = [
+        {"update_id": 301, "message": {"chat": {"id": 9}, "text": "https://x.com/p/1"}},
+    ]
+
+    def fake_get_updates(token, offset=None, timeout=0):
+        calls["offsets"].append(offset)
+        return fake_updates if offset is None else []
+
+    def fake_send(token, chat_id, text):
+        calls["sent"].append((chat_id, text))
+        return {}
+
+    count = bot.run_once("T", fake_get_updates, fake_send, bot.handle_text)
+    assert count == 1
+    assert calls["offsets"] == [None, 302]
+    assert calls["sent"][0][0] == 9
+
+
+def test_run_once_empty_no_confirm():
+    assert bot.run_once("T", lambda *a, **k: [], lambda *a: {}, lambda t: "") == 0

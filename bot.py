@@ -65,3 +65,67 @@ def save_to_notion(url: str, platform: list[str], note: str) -> bool:
     payload = {"parent": {"database_id": NOTION_DATABASE_ID}, "properties": properties}
     response = requests.post(NOTION_API_URL, headers=NOTION_HEADERS, json=payload, timeout=30)
     return response.status_code == 200
+
+
+TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
+
+
+def get_updates(token, offset=None, timeout=0):
+    params = {"timeout": timeout, "allowed_updates": '["message"]'}
+    if offset is not None:
+        params["offset"] = offset
+    resp = requests.get(TELEGRAM_API.format(token=token, method="getUpdates"), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()["result"]
+
+
+def send_message(token, chat_id, text):
+    resp = requests.post(
+        TELEGRAM_API.format(token=token, method="sendMessage"),
+        json={"chat_id": chat_id, "text": text},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def handle_text(text: str) -> str:
+    urls = extract_urls(text)
+    if not urls:
+        return "没有检测到链接，请直接发送链接（可以附带备注）。"
+    note = extract_note(text)
+    results = []
+    for url in urls:
+        platform = detect_platform(url)
+        platform_str = "、".join(platform)
+        try:
+            ok = save_to_notion(url, platform, note)
+        except Exception as exc:
+            results.append(f"❌ 存入失败：{exc}\n📎 {url}")
+            continue
+        if ok:
+            results.append(f"✅ 已存入 Notion\n📎 {url}\n🏷 {platform_str}")
+        else:
+            results.append(f"❌ 存入失败\n📎 {url}")
+    return "\n\n".join(results)
+
+
+def run_once(token, get_updates_fn=get_updates, send_message_fn=send_message, handle_text_fn=handle_text) -> int:
+    updates = get_updates_fn(token, offset=None)
+    if not updates:
+        return 0
+    last_update_id = None
+    for update in updates:
+        last_update_id = update["update_id"]
+        message = update.get("message")
+        if not message:
+            continue
+        chat_id = message["chat"]["id"]
+        text = (message.get("text") or "").strip()
+        if not text:
+            send_message_fn(token, chat_id, "发一条带链接的消息给我，我会存进 Notion。")
+            continue
+        send_message_fn(token, chat_id, handle_text_fn(text))
+    if last_update_id is not None:
+        get_updates_fn(token, offset=last_update_id + 1)
+    return len(updates)
