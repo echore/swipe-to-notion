@@ -51,3 +51,17 @@ def extract_urls(text: str) -> list[str]:
 
 def extract_note(text: str) -> str:
     return re.sub(r"https?://[^\s]+", "", text).strip()
+
+
+def save_to_notion(url: str, platform: list[str], note: str) -> bool:
+    title = note if note else url
+    properties = {
+        TITLE_PROPERTY: {"title": [{"text": {"content": title}}]},
+        URL_PROPERTY: {"url": url},
+        STATUS_PROPERTY: {"select": {"name": DEFAULT_STATUS}},
+    }
+    if platform:
+        properties[PLATFORM_PROPERTY] = {"multi_select": [{"name": p} for p in platform]}
+    payload = {"parent": {"database_id": NOTION_DATABASE_ID}, "properties": properties}
+    response = requests.post(NOTION_API_URL, headers=NOTION_HEADERS, json=payload, timeout=30)
+    return response.status_code == 200
