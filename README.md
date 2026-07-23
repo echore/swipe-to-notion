@@ -56,7 +56,14 @@ Open Telegram, search for **@BotFather**, and send `/newbot`. Pick a name and a 
 
 ### 2. Create the Notion Database and Integration
 
-Create a database in Notion with four properties:
+**Fastest path — duplicate a ready-made template**, then click **Duplicate** at the top right to copy it into your workspace:
+
+- [English template](https://fifree.notion.site/3a6942e6a592807f9dc3e2370bb527e9?v=3a6942e6a5928094af3a000ce0bdd2c4)
+- [中文模板](https://fifree.notion.site/3a6942e6a59280d9b165c05de688db66?v=3a6942e6a59280108d9f000c35330a2c)
+
+Each ships with example rows and a study-breakdown layout; delete the examples once you start. Skip to the integration step below after duplicating.
+
+Or build your own database with four properties:
 
 | Property | Type | Purpose |
 |---|---|---|

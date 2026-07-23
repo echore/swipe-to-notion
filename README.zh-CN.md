@@ -56,7 +56,14 @@ GitHub Actions 的定时任务每 15 分钟醒一次，向 Telegram 要走你上
 
 ### 2. 建 Notion 数据库和 integration
 
-在 Notion 里建一个数据库，四个字段：
+**最快的办法——直接复制现成模板**,打开后点右上角 **Duplicate** 复制进你的 workspace:
+
+- [中文模板](https://fifree.notion.site/3a6942e6a59280d9b165c05de688db66?v=3a6942e6a59280108d9f000c35330a2c)
+- [English template](https://fifree.notion.site/3a6942e6a592807f9dc3e2370bb527e9?v=3a6942e6a5928094af3a000ce0bdd2c4)
+
+每个都带示例行和一套拆解框架,开始用之前把示例删掉即可。复制完直接跳到下面的 integration 步骤。
+
+或者自己建一个数据库,四个字段：
 
 | 字段 | 类型 | 作用 |
 |---|---|---|
