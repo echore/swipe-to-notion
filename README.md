@@ -60,12 +60,12 @@ Create a database in Notion with four properties:
 
 | Property | Type | Purpose |
 |---|---|---|
-| `素材名称` | Title | Your note, or the URL if you sent no note |
-| `素材链接` | URL | The saved link |
-| `状态` | Select | Review status, set to `待分析` on save |
-| `平台来源` | Multi-select | Which platform the link came from |
+| `Name` | Title | Your note, or the URL if you sent no note |
+| `Link` | URL | The saved link |
+| `Status` | Select or Status | Review status, set to the first option on save |
+| `Platform` | Multi-select | Which platform the link came from |
 
-Those default names are Chinese because I built this for my own database. To use English names, create the properties with whatever names you prefer and override them in step 4 (see [Renaming the Notion Properties](#renaming-the-notion-properties)).
+The names above are only examples. The bot finds each property **by type, not by name**, so call them whatever you like in whatever language you like: it writes the title to the one title property, the link to a URL property, the status to a select-or-status property, and the platform tags to a multi-select property. See [Customizing Your Database](#customizing-your-database) for what it does and does not touch.
 
 Then go to [notion.so/my-integrations](https://www.notion.so/my-integrations), create an internal integration, and copy its secret.
 
@@ -101,23 +101,22 @@ Open the **Actions** tab in your fork and click the button to enable workflows. 
 
 Message your bot with any link. Then open **Actions → poll-telegram → Run workflow** to trigger a run immediately instead of waiting for the schedule. The bot replies in Telegram, and the row appears in Notion.
 
-If nothing happens, open the failed run in the Actions tab. A 404 from Notion means the integration is not connected to the database (step 2). A 401 means the token is wrong. A property-name error means your Notion property names differ from the defaults, which the next section covers.
+If nothing happens, open the failed run in the Actions tab. A 404 from Notion means the integration is not connected to the database (step 2). A 401 means the token is wrong.
 
-## Renaming the Notion Properties
+## Customizing Your Database
 
-Add any of these as repository secrets to match your own database:
+The bot reads your database structure on each run and matches four roles by property type, so you can rename columns, reorder them, or run the whole thing in another language without touching any config.
 
-| Variable | Default |
-|---|---|
-| `SOCIAL_TITLE_PROPERTY` | `素材名称` |
-| `SOCIAL_URL_PROPERTY` | `素材链接` |
-| `SOCIAL_STATUS_PROPERTY` | `状态` |
-| `SOCIAL_PLATFORM_PROPERTY` | `平台来源` |
-| `SOCIAL_DEFAULT_STATUS` | `待分析` |
+- **Title** → the single title property. Always written.
+- **Link** → a URL property (or a text property named like a link if you have no URL column). If there is no such column, the link is kept inside the title so it is never lost.
+- **Status** → a Select or Status property. The bot writes that column's **first option**, so whatever you named it (`待分析`, `To Review`, …) is what gets set.
+- **Platform** → a Multi-select property. Values are written as English slugs: `Xiaohongshu`, `Bilibili`, `YouTube`, `Twitter/X`, `Instagram`, `Weibo`, `Douyin`, `Other`.
 
-So an English database with `Name`, `Link`, `Status` and `Platform` needs four secrets: `SOCIAL_TITLE_PROPERTY=Name`, `SOCIAL_URL_PROPERTY=Link`, `SOCIAL_STATUS_PROPERTY=Status`, `SOCIAL_PLATFORM_PROPERTY=Platform`.
+Add any other columns you want (priority, due date, rating, notes, tags): the bot only writes the four roles above and leaves everything else blank for you to fill.
 
-The platform tag values themselves are written by `detect_platform` in [bot.py](bot.py) and are a mix of Chinese and English (`小红书`, `B站`, `YouTube`, `Twitter/X`, `Instagram`, `微博`, `抖音`, `其他`). Edit that function if you want different labels; Notion creates multi-select options on first use, so no setup is needed on the Notion side.
+The **one** case to watch is adding a second column of a role's type, for example a Status column plus a Priority column that are both Select. The bot then disambiguates by name — a column whose name contains `status` / `状态` / `进度` wins for status, `platform` / `平台` / `来源` for platform, `link` / `链接` / `url` for the link — and skips the rest. If the names give no hint, it skips that role rather than guess wrong. To force a specific column, set a repository secret: `SOCIAL_STATUS_PROPERTY`, `SOCIAL_PLATFORM_PROPERTY`, `SOCIAL_URL_PROPERTY`, or `SOCIAL_TITLE_PROPERTY`. `SOCIAL_DEFAULT_STATUS` overrides which status option is written.
+
+To change the platform slugs themselves (or add a platform), edit `detect_platform` in [bot.py](bot.py).
 
 ## Known Limits
 
