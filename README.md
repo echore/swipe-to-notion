@@ -123,6 +123,31 @@ Add any other columns you want (priority, due date, rating, notes, tags): the bo
 
 The **one** case to watch is adding a second column of a role's type, for example a Status column plus a Priority column that are both Select. The bot then disambiguates by name — a column whose name contains `status` / `状态` / `进度` wins for status, `platform` / `平台` / `来源` for platform, `link` / `链接` / `url` for the link — and skips the rest. If the names give no hint, it skips that role rather than guess wrong. To force a specific column, set a repository secret: `SOCIAL_STATUS_PROPERTY`, `SOCIAL_PLATFORM_PROPERTY`, `SOCIAL_URL_PROPERTY`, or `SOCIAL_TITLE_PROPERTY`. `SOCIAL_DEFAULT_STATUS` overrides which status option is written.
 
+### Instagram and Xiaohongshu: Fetched Details
+
+For Instagram and Xiaohongshu links, the bot opens the public page anonymously. It sends no login and no cookies, so the platform cannot tie the request to your account. It then saves the details alongside the link:
+
+| Link | What the bot fetches |
+|---|---|
+| Instagram post or Reel | Caption, author, like and comment counts, cover image |
+| Instagram profile | Account name, follower / following / post counts, profile picture |
+| Xiaohongshu note (including `xhslink` short links) | Title, text, author, like / save / comment counts, all images (up to 9) |
+
+The bot downloads each image and uploads it to Notion, because the platforms sign their image URLs and those URLs expire within days. The download stays in the memory of the machine that runs the bot and never touches disk. For videos the bot saves the cover frame, not the video file.
+
+To store these details, add any of the columns below. Each one is optional, and the bot skips any role it cannot find.
+
+| Name contains | Type | What the bot writes |
+|---|---|---|
+| `type` / `类型` | Select | `账号` (account) or `帖子` (post); taken from the URL when the fetch fails |
+| `stats` / `数据` | Text | For example `776K 粉丝 · 231 帖子` or `26K 赞 · 336 评论` |
+| `cover` / `封面` | Files | The first image. Pair it with a Gallery view that uses this column as the card preview |
+| `note` / `备注` | Text | The note you typed next to the link in Telegram |
+
+With details available, the title becomes the post title or account name instead of the raw URL. The page body holds the images, then the full caption, then your note. The platform column may also be a Select: if it already has an option such as `ins` or `小红书`, the bot reuses your label instead of adding `Instagram`.
+
+When a platform blocks the fetch (for example by demanding a login from the server's IP address), the bot still saves the link without details and replies `⚠️ 已存链接，但没抓到详情`.
+
 To change the platform slugs themselves (or add a platform), edit `detect_platform` in [bot.py](bot.py).
 
 ## Known Limits
@@ -141,7 +166,7 @@ pip install -r requirements.txt
 python bot.py           # runs one poll cycle and exits
 ```
 
-`.env` is gitignored. Run the tests with `python -m pytest tests/ -v`; all 13 pass offline against fakes, so no credentials are needed.
+`.env` is gitignored. Run the tests with `python -m pytest tests/ -v`; all of them pass offline against fakes and saved sample pages, so no credentials are needed.
 
 ## License
 
