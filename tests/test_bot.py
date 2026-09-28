@@ -443,3 +443,44 @@ def test_own_note_is_kept_next_to_xhs_link(monkeypatch):
     monkeypatch.setattr(bot, "fetch_meta", lambda url: xhs)
     bot.handle_text("https://xhslink.cn/o/x 排版可以学")
     assert saved[0]["note"] == "排版可以学"
+
+
+# ---------- 正文顶部信息框：链接 + 数据 ----------
+def _post_payload(monkeypatch, **save_kwargs):
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        text = ""
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return FakeResp()
+
+    monkeypatch.setattr(bot.requests, "post", fake_post)
+    bot.save_to_notion(schema_fetcher=lambda: STUDY_SCHEMA, uploader=lambda u: None, **save_kwargs)
+    return captured["json"]
+
+
+def _callout_text(block):
+    return "".join(t["text"]["content"] for t in block["callout"]["rich_text"])
+
+
+def test_page_starts_with_clickable_link_and_stats(monkeypatch):
+    url = "https://www.instagram.com/reel/DZx/"
+    payload = _post_payload(monkeypatch, url=url, platform=["Instagram"], note="", meta=REEL, kind="post")
+    first = payload["children"][0]
+    assert first["type"] == "callout"
+    assert "26K 赞 · 336 评论" in _callout_text(first)
+    assert "craighillcompany" in _callout_text(first)
+    links = [t["text"].get("link") for t in first["callout"]["rich_text"]]
+    assert {"url": url} in links
+
+
+def test_page_has_link_box_even_when_fetch_failed(monkeypatch):
+    url = "https://www.instagram.com/craighillcompany/"
+    payload = _post_payload(monkeypatch, url=url, platform=["Instagram"], note="", meta=None, kind="account")
+    first = payload["children"][0]
+    assert first["type"] == "callout"
+    assert "📊" not in _callout_text(first)
+    assert {"url": url} in [t["text"].get("link") for t in first["callout"]["rich_text"]]

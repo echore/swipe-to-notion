@@ -144,7 +144,7 @@ To store these details, add any of the columns below. Each one is optional, and 
 | `cover` / `封面` | Files | The first image. Pair it with a Gallery view that uses this column as the card preview |
 | `note` / `备注` | Text | The note you typed next to the link in Telegram |
 
-With details available, the title becomes the post title or account name instead of the raw URL. The page body holds the images, then the full caption, then your note. The platform column may also be a Select: if it already has an option such as `ins` or `小红书`, the bot reuses your label instead of adding `Instagram`.
+With details available, the title becomes the post title or account name instead of the raw URL. The page body opens with an info box that holds the clickable link, the stats, and the author, followed by the images, the full caption, and your note. The stats column is optional because the info box repeats the stats. The platform column may also be a Select: if it already has an option such as `ins` or `小红书`, the bot reuses your label instead of adding `Instagram`.
 
 When a platform blocks the fetch (for example by demanding a login from the server's IP address), the bot still saves the link without details and replies `⚠️ 已存链接，但没抓到详情`.
 

@@ -291,10 +291,21 @@ def upload_image(image_url: str) -> str | None:
         return None
 
 
-def build_body_blocks(meta, upload_ids: list[str], note: str) -> list[dict]:
-    """正文：图片 → 文案 → 你的备注。"""
-    blocks = [{"object": "block", "type": "image",
-               "image": {"type": "file_upload", "file_upload": {"id": i}}} for i in upload_ids]
+def build_info_callout(url: str, meta) -> dict:
+    """正文顶部信息框：可点击的链接，抓到详情时再加一行数据。"""
+    rich = [{"text": {"content": "🔗 "}}, {"text": {"content": url, "link": {"url": url}}}]
+    if meta and meta.stats:
+        line = meta.stats + (f" · 作者 {meta.author}" if meta.author else "")
+        rich.append({"text": {"content": f"\n📊 {line}"}})
+    return {"object": "block", "type": "callout",
+            "callout": {"rich_text": rich, "icon": {"type": "emoji", "emoji": "📌"}, "color": "gray_background"}}
+
+
+def build_body_blocks(url: str, meta, upload_ids: list[str], note: str) -> list[dict]:
+    """正文：信息框 → 图片 → 文案 → 你的备注。"""
+    blocks = [build_info_callout(url, meta)]
+    blocks += [{"object": "block", "type": "image",
+                "image": {"type": "file_upload", "file_upload": {"id": i}}} for i in upload_ids]
     texts = []
     if meta and meta.body:
         body = meta.body
@@ -314,9 +325,7 @@ def save_to_notion(url: str, platform: list[str], note: str,
     upload_ids = [i for i in (upload(u) for u in (meta.image_urls if meta else [])) if i]
     props = build_properties(resolution, url, platform, note, meta=meta, kind=kind, cover_ids=upload_ids)
     payload = {"parent": {"database_id": NOTION_DATABASE_ID}, "properties": props}
-    children = build_body_blocks(meta, upload_ids, note) if meta else []
-    if children:
-        payload["children"] = children
+    payload["children"] = build_body_blocks(url, meta, upload_ids, note)
     resp = requests.post(NOTION_PAGES_URL, headers=NOTION_HEADERS, json=payload, timeout=30)
     if resp.status_code != 200:
         # 写进 Actions 日志方便排查；Notion 的错误响应里不含 token
