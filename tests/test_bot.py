@@ -214,19 +214,19 @@ def test_handle_text_no_url():
 def test_handle_text_saves_each_url(monkeypatch):
     saved = []
     monkeypatch.setattr(bot, "save_to_notion",
-                        lambda url, platform, note: saved.append((url, platform, note)) or True)
+                        lambda url, platform, note, **kw: saved.append((url, platform, note)) or True)
     reply = bot.handle_text("https://b23.tv/x 好视频")
     assert saved == [("https://b23.tv/x", ["Bilibili"], "好视频")]
     assert "已存入" in reply
 
 
 def test_handle_text_reports_failure_when_save_returns_false(monkeypatch):
-    monkeypatch.setattr(bot, "save_to_notion", lambda url, platform, note: False)
+    monkeypatch.setattr(bot, "save_to_notion", lambda url, platform, note, **kw: False)
     assert "存入失败" in bot.handle_text("https://b23.tv/x 好视频")
 
 
 def test_handle_text_reports_failure_when_save_raises(monkeypatch):
-    def boom(url, platform, note):
+    def boom(url, platform, note, **kw):
         raise RuntimeError("network down")
 
     monkeypatch.setattr(bot, "save_to_notion", boom)
@@ -341,3 +341,72 @@ def test_build_platform_without_matching_option_uses_slug():
     props = bot.build_properties(r, "https://youtu.be/x", ["YouTube"], "")
     assert props["平台"] == {"select": {"name": "YouTube"}}
     assert "类型" not in props
+
+
+# ---------- 处理一条消息：抓详情 → 存 → 回复 ----------
+def _capture_save(monkeypatch):
+    saved = []
+
+    def fake_save(url, platform, note, **kw):
+        saved.append({"url": url, "platform": platform, "note": note, **kw})
+        return True
+
+    monkeypatch.setattr(bot, "save_to_notion", fake_save)
+    return saved
+
+
+def test_handle_instagram_link_saves_fetched_details(monkeypatch):
+    saved = _capture_save(monkeypatch)
+    monkeypatch.setattr(bot, "fetch_meta", lambda url: REEL)
+    reply = bot.handle_text("https://www.instagram.com/reel/DZx/ 打火机好酷")
+    assert saved[0]["meta"] is REEL
+    assert saved[0]["kind"] == "post"
+    assert saved[0]["note"] == "打火机好酷"
+    assert "✅ 已存入 Notion" in reply
+    assert "帖子 · Instagram · craighillcompany" in reply
+
+
+def test_handle_link_when_fetch_fails_saves_link_only_and_warns(monkeypatch):
+    saved = _capture_save(monkeypatch)
+    monkeypatch.setattr(bot, "fetch_meta", lambda url: None)
+    reply = bot.handle_text("https://www.instagram.com/craighillcompany/")
+    assert saved[0]["meta"] is None
+    assert saved[0]["kind"] == "account"   # 抓不到也能从链接看出是账号
+    assert "⚠️ 已存链接，但没抓到详情" in reply
+
+
+def test_handle_other_platform_does_not_fetch(monkeypatch):
+    saved = _capture_save(monkeypatch)
+
+    def must_not_fetch(url):
+        raise AssertionError("不该去抓 B 站")
+
+    monkeypatch.setattr(bot, "fetch_meta", must_not_fetch)
+    reply = bot.handle_text("https://b23.tv/x 好视频")
+    assert saved[0]["meta"] is None
+    assert "✅ 已存入 Notion" in reply
+
+
+def test_save_with_meta_uploads_images_into_cover_and_body(monkeypatch):
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        captured["json"] = json
+        return FakeResp()
+
+    monkeypatch.setattr(bot.requests, "post", fake_post)
+    xhs = Meta(kind="post", title="SOUL BREW", stats="38 赞", author="猫头鹰酱",
+               body="文创品牌", image_urls=["https://a", "https://b", "https://broken"])
+    uploads = {"https://a": "up-a", "https://b": "up-b", "https://broken": None}
+    ok = bot.save_to_notion("https://xhslink.cn/o/x", ["Xiaohongshu"], "中草药", schema_fetcher=lambda: STUDY_SCHEMA,
+                            meta=xhs, kind="post", uploader=uploads.get)
+    assert ok is True
+    payload = captured["json"]
+    assert payload["properties"]["封面"]["files"][0]["file_upload"]["id"] == "up-a"
+    images = [b["image"]["file_upload"]["id"] for b in payload["children"] if b["type"] == "image"]
+    assert images == ["up-a", "up-b"]      # 上传失败的图跳过，不影响整条
+    texts = [b["paragraph"]["rich_text"][0]["text"]["content"] for b in payload["children"] if b["type"] == "paragraph"]
+    assert "文创品牌" in texts

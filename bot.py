@@ -10,6 +10,8 @@ import re
 import requests
 from dotenv import load_dotenv
 
+from meta import USER_AGENT, fetch_meta, kind_from_url
+
 load_dotenv()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -57,6 +59,8 @@ KIND_ALIASES = {
     "post": {"帖子", "post", "笔记"},
 }
 KIND_LABELS = {"account": "账号", "post": "帖子"}
+# 只对这两个平台抓详情（匿名请求公开页面）；其余平台照旧只存链接
+FETCHABLE_PLATFORMS = ("Instagram", "Xiaohongshu")
 
 
 # ---------- 纯函数：平台识别（英文 slug） ----------
@@ -244,12 +248,64 @@ def get_database_schema(database_id=None):
     return resp.json()["properties"]
 
 
+NOTION_UPLOADS_URL = "https://api.notion.com/v1/file_uploads"
+MAX_IMAGE_BYTES = 20 * 1024 * 1024  # Notion 单文件直传上限
+
+
+def upload_image(image_url: str) -> str | None:
+    """下载图片（只在内存里）→ 传到 Notion，返回 file_upload id；任何一步失败返回 None。
+
+    平台给的图片地址带签名、几天后过期，所以必须转存到 Notion，不能只存外链。
+    """
+    try:
+        img = requests.get(image_url, headers={"User-Agent": USER_AGENT}, timeout=30)
+        img.raise_for_status()
+        content_type = img.headers.get("Content-Type", "").split(";")[0]
+        if not content_type.startswith("image/") or len(img.content) > MAX_IMAGE_BYTES:
+            return None
+        filename = "cover." + content_type.split("/")[1]
+        created = requests.post(NOTION_UPLOADS_URL, headers=NOTION_HEADERS,
+                                json={"filename": filename, "content_type": content_type}, timeout=30)
+        created.raise_for_status()
+        upload_id = created.json()["id"]
+        sent = requests.post(
+            f"{NOTION_UPLOADS_URL}/{upload_id}/send",
+            headers={k: v for k, v in NOTION_HEADERS.items() if k != "Content-Type"},
+            files={"file": (filename, img.content, content_type)},
+            timeout=60,
+        )
+        sent.raise_for_status()
+        return upload_id
+    except Exception:
+        return None
+
+
+def build_body_blocks(meta, upload_ids: list[str], note: str) -> list[dict]:
+    """正文：图片 → 文案 → 你的备注。"""
+    blocks = [{"object": "block", "type": "image",
+               "image": {"type": "file_upload", "file_upload": {"id": i}}} for i in upload_ids]
+    texts = []
+    if meta and meta.body:
+        body = meta.body
+        texts += [body[i:i + 2000] for i in range(0, len(body), 2000)]
+    if note:
+        texts.append(f"💬 {note}")
+    blocks += [{"object": "block", "type": "paragraph",
+                "paragraph": {"rich_text": [{"text": {"content": t}}]}} for t in texts]
+    return blocks
+
+
 def save_to_notion(url: str, platform: list[str], note: str,
-                   schema_fetcher=get_database_schema) -> bool:
+                   schema_fetcher=get_database_schema, meta=None, kind=None, uploader=None) -> bool:
     schema = schema_fetcher()
     resolution = resolve_roles(schema, ENV_OVERRIDES)
-    props = build_properties(resolution, url, platform, note)
+    upload = uploader or upload_image
+    upload_ids = [i for i in (upload(u) for u in (meta.image_urls if meta else [])) if i]
+    props = build_properties(resolution, url, platform, note, meta=meta, kind=kind, cover_ids=upload_ids)
     payload = {"parent": {"database_id": NOTION_DATABASE_ID}, "properties": props}
+    children = build_body_blocks(meta, upload_ids, note) if meta else []
+    if children:
+        payload["children"] = children
     resp = requests.post(NOTION_PAGES_URL, headers=NOTION_HEADERS, json=payload, timeout=30)
     return resp.status_code == 200
 
@@ -285,15 +341,23 @@ def handle_text(text: str) -> str:
     for url in urls:
         platform = detect_platform(url)
         platform_str = "、".join(platform)
+        fetchable = platform[0] in FETCHABLE_PLATFORMS
+        meta = fetch_meta(url) if fetchable else None
+        kind = meta.kind if meta else kind_from_url(url)
         try:
-            ok = save_to_notion(url, platform, note)
+            ok = save_to_notion(url, platform, note, meta=meta, kind=kind)
         except Exception as exc:
             results.append(f"❌ 存入失败：{exc}\n📎 {url}")
             continue
-        if ok:
-            results.append(f"✅ 已存入 Notion\n📎 {url}\n🏷 {platform_str}")
-        else:
+        if not ok:
             results.append(f"❌ 存入失败\n📎 {url}")
+        elif meta:
+            who = meta.author or meta.title
+            results.append(f"✅ 已存入 Notion\n📌 {KIND_LABELS[meta.kind]} · {platform_str} · {who}\n📎 {url}")
+        elif fetchable:
+            results.append(f"⚠️ 已存链接，但没抓到详情\n📎 {url}\n🏷 {platform_str}")
+        else:
+            results.append(f"✅ 已存入 Notion\n📎 {url}\n🏷 {platform_str}")
     return "\n\n".join(results)
 
 
