@@ -274,3 +274,70 @@ def test_run_once_advances_offset_even_when_notion_save_fails(monkeypatch):
 
 def test_run_once_empty_no_confirm():
     assert bot.run_once("T", lambda *a, **k: [], lambda *a: {}, lambda t: "") == 0
+
+
+# ---------- 学习库：抓取到的详情写进对应列 ----------
+from meta import Meta  # noqa: E402
+
+STUDY_SCHEMA = {
+    "Name": {"type": "title", "title": {}},
+    "备注": {"type": "rich_text", "rich_text": {}},
+    "平台": _sel("ins", "小红书"),
+    "类型": _sel("账号", "帖子"),
+    "链接": {"type": "url", "url": {}},
+    "数据": {"type": "rich_text", "rich_text": {}},
+    "封面": {"type": "files", "files": {}},
+    "Created time": {"type": "created_time", "created_time": {}},
+}
+
+REEL = Meta(kind="post", title="craighillcompany：The word is out.", stats="26K 赞 · 336 评论",
+            author="craighillcompany", body="The word is out.", image_urls=["https://img"])
+
+
+def _text(prop):
+    return prop["rich_text"][0]["text"]["content"]
+
+
+def test_study_schema_roles_do_not_steal_platform_select_as_status():
+    r = bot.resolve_roles(STUDY_SCHEMA, {})
+    assert r["status"] is None
+    assert r["platform"]["name"] == "平台"
+    assert r["kind"]["name"] == "类型"
+    assert r["stats"]["name"] == "数据"
+    assert r["cover"]["name"] == "封面"
+    assert r["note"]["name"] == "备注"
+
+
+def test_build_post_with_meta_fills_study_columns():
+    r = bot.resolve_roles(STUDY_SCHEMA, {})
+    props = bot.build_properties(r, "https://www.instagram.com/reel/DZx/", ["Instagram"], "打火机好酷",
+                                 meta=REEL, kind="post", cover_ids=["up1"])
+    assert props["Name"]["title"][0]["text"]["content"] == "craighillcompany：The word is out."
+    assert props["平台"] == {"select": {"name": "ins"}}          # 沿用库里已有的 ins，不另建 Instagram
+    assert props["类型"] == {"select": {"name": "帖子"}}
+    assert _text(props["数据"]) == "26K 赞 · 336 评论"
+    assert props["链接"] == {"url": "https://www.instagram.com/reel/DZx/"}
+    assert _text(props["备注"]) == "打火机好酷"
+    assert props["封面"] == {"files": [{"type": "file_upload", "file_upload": {"id": "up1"}, "name": "cover"}]}
+
+
+def test_build_xhs_platform_maps_to_existing_chinese_option():
+    r = bot.resolve_roles(STUDY_SCHEMA, {})
+    props = bot.build_properties(r, "https://xhslink.cn/o/x", ["Xiaohongshu"], "", kind="post")
+    assert props["平台"] == {"select": {"name": "小红书"}}
+
+
+def test_build_without_meta_still_sets_kind_and_link():
+    r = bot.resolve_roles(STUDY_SCHEMA, {})
+    props = bot.build_properties(r, "https://www.instagram.com/craighillcompany/", ["Instagram"], "",
+                                 kind="account")
+    assert props["Name"]["title"][0]["text"]["content"] == "https://www.instagram.com/craighillcompany/"
+    assert props["类型"] == {"select": {"name": "账号"}}
+    assert "数据" not in props and "封面" not in props
+
+
+def test_build_platform_without_matching_option_uses_slug():
+    r = bot.resolve_roles(STUDY_SCHEMA, {})
+    props = bot.build_properties(r, "https://youtu.be/x", ["YouTube"], "")
+    assert props["平台"] == {"select": {"name": "YouTube"}}
+    assert "类型" not in props
