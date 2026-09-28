@@ -66,7 +66,7 @@ FETCHABLE_PLATFORMS = ("Instagram", "Xiaohongshu")
 # ---------- 纯函数：平台识别（英文 slug） ----------
 def detect_platform(url: str) -> list[str]:
     u = url.lower()
-    if "xiaohongshu.com" in u or "xhslink.com" in u:
+    if "xiaohongshu.com" in u or "xhslink." in u:   # 短链有 xhslink.com / xhslink.cn
         return ["Xiaohongshu"]
     if "bilibili.com" in u or "b23.tv" in u:
         return ["Bilibili"]
@@ -87,8 +87,18 @@ def extract_urls(text: str) -> list[str]:
     return re.findall(r"https?://[^\s]+", text)
 
 
+# 平台分享时自动附带的固定话术，不是用户写的备注
+SHARE_BOILERPLATE = (
+    "先复制这段，再进【小红书】就能浏览笔记。",
+    "Copy and open rednote to view the note",
+)
+
+
 def extract_note(text: str) -> str:
-    return re.sub(r"https?://[^\s]+", "", text).strip()
+    note = re.sub(r"https?://[^\s]+", "", text)
+    for phrase in SHARE_BOILERPLATE:
+        note = note.replace(phrase, "")
+    return note.strip()
 
 
 # ---------- 纯函数：库结构解析（类型推断 + 名字兜底 + override） ----------
@@ -276,7 +286,8 @@ def upload_image(image_url: str) -> str | None:
         )
         sent.raise_for_status()
         return upload_id
-    except Exception:
+    except Exception as exc:
+        print(f"image upload skipped: {exc}")
         return None
 
 
@@ -307,6 +318,9 @@ def save_to_notion(url: str, platform: list[str], note: str,
     if children:
         payload["children"] = children
     resp = requests.post(NOTION_PAGES_URL, headers=NOTION_HEADERS, json=payload, timeout=30)
+    if resp.status_code != 200:
+        # 写进 Actions 日志方便排查；Notion 的错误响应里不含 token
+        print(f"notion create page failed: {resp.status_code} {resp.text[:500]}")
     return resp.status_code == 200
 
 
@@ -344,9 +358,12 @@ def handle_text(text: str) -> str:
         fetchable = platform[0] in FETCHABLE_PLATFORMS
         meta = fetch_meta(url) if fetchable else None
         kind = meta.kind if meta else kind_from_url(url)
+        # 小红书分享文案开头就是笔记标题；抓到标题后它只是重复，不当备注
+        own_note = "" if meta and meta.title and note.startswith(meta.title[:8]) else note
         try:
-            ok = save_to_notion(url, platform, note, meta=meta, kind=kind)
+            ok = save_to_notion(url, platform, own_note, meta=meta, kind=kind)
         except Exception as exc:
+            print(f"save failed: {url}: {exc}")
             results.append(f"❌ 存入失败：{exc}\n📎 {url}")
             continue
         if not ok:

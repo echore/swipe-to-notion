@@ -200,6 +200,7 @@ def test_save_fetches_schema_and_posts_resolved_payload(monkeypatch):
 def test_save_returns_false_on_non_200(monkeypatch):
     class FakeResp:
         status_code = 400
+        text = ""
 
     monkeypatch.setattr(bot.requests, "post", lambda *a, **k: FakeResp())
     ok = bot.save_to_notion("https://x", ["YouTube"], "", schema_fetcher=lambda: CN_SCHEMA)
@@ -410,3 +411,35 @@ def test_save_with_meta_uploads_images_into_cover_and_body(monkeypatch):
     assert images == ["up-a", "up-b"]      # 上传失败的图跳过，不影响整条
     texts = [b["paragraph"]["rich_text"][0]["text"]["content"] for b in payload["children"] if b["type"] == "paragraph"]
     assert "文创品牌" in texts
+
+
+# ---------- 小红书分享文案 ----------
+XHS_SHARE = ("混进a16z的屋顶派对，我先研究下谁请客 旧金山科技周T... https://xhslink.cn/o/5ydxGyBYJg5 "
+             "先复制这段，再进【小红书】就能浏览笔记。")
+
+
+def test_detect_platform_xhslink_cn():
+    assert bot.detect_platform("https://xhslink.cn/o/5ydxGyBYJg5") == ["Xiaohongshu"]
+
+
+def test_extract_note_drops_xhs_share_boilerplate():
+    assert "先复制这段" not in bot.extract_note(XHS_SHARE)
+    assert bot.extract_note("SOUL BREW 🟥... https://xhslink.cn/o/x Copy and open rednote to view the note") \
+        == "SOUL BREW 🟥..."
+
+
+def test_xhs_share_text_is_not_kept_as_note_when_details_fetched(monkeypatch):
+    saved = _capture_save(monkeypatch)
+    xhs = Meta(kind="post", title="混进a16z的屋顶派对，我先研究下谁请客", author="某人", image_urls=[])
+    monkeypatch.setattr(bot, "fetch_meta", lambda url: xhs)
+    bot.handle_text(XHS_SHARE)
+    assert saved[0]["platform"] == ["Xiaohongshu"]
+    assert saved[0]["note"] == ""          # 分享文案只是标题的重复，不当备注
+
+
+def test_own_note_is_kept_next_to_xhs_link(monkeypatch):
+    saved = _capture_save(monkeypatch)
+    xhs = Meta(kind="post", title="混进a16z的屋顶派对", author="某人", image_urls=[])
+    monkeypatch.setattr(bot, "fetch_meta", lambda url: xhs)
+    bot.handle_text("https://xhslink.cn/o/x 排版可以学")
+    assert saved[0]["note"] == "排版可以学"
