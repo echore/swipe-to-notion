@@ -2,6 +2,7 @@ name: poll-telegram
 
 on:
   schedule:
+    # 仓库 60 天无提交会被 GitHub 停用；重新启用后要改动本文件并提交，定时才会重新登记
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
