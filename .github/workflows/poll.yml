@@ -3,7 +3,8 @@ name: poll-telegram
 on:
   schedule:
     # 仓库 60 天无提交会被 GitHub 停用；重新启用后要改动本文件并提交，定时才会重新登记
-    - cron: "*/15 * * * *"
+    # 避开整点和 */15 的高峰时刻，GitHub 在高峰期会推迟或丢弃定时任务
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}
 
 concurrency:
